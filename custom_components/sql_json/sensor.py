@@ -1,9 +1,10 @@
 """Sensor from an SQL Query (with JSON to object conversion)."""
-## Based on: core/homeassistant/components/sql/sensor.py @ 0.116.4
+## Based on: core/homeassistant/components/sql/sensor.py @ core-2021.5.0 5/5/2021
 
 import datetime
 import decimal
 import logging
+import re
 import json
 
 import sqlalchemy
@@ -11,16 +12,22 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 import voluptuous as vol
 
 from homeassistant.components.recorder import CONF_DB_URL, DEFAULT_DB_FILE, DEFAULT_URL
-from homeassistant.components.sensor import PLATFORM_SCHEMA
+from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
 from homeassistant.const import CONF_NAME, CONF_UNIT_OF_MEASUREMENT, CONF_VALUE_TEMPLATE
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity import Entity
 
 _LOGGER = logging.getLogger(__name__)
 
 CONF_COLUMN_NAME = "column"
 CONF_QUERIES = "queries"
 CONF_QUERY = "query"
+
+DB_URL_RE = re.compile("//.*:.*@")
+
+
+def redact_credentials(data):
+    """Redact credentials from string data."""
+    return DB_URL_RE.sub("//****:****@", data)
 
 
 def validate_sql_select(value):
@@ -51,6 +58,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     if not db_url:
         db_url = DEFAULT_URL.format(hass_config_path=hass.config.path(DEFAULT_DB_FILE))
 
+    sess = None
     try:
         engine = sqlalchemy.create_engine(db_url)
         sessmaker = scoped_session(sessionmaker(bind=engine))
@@ -60,10 +68,15 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         sess.execute("SELECT 1;")
 
     except sqlalchemy.exc.SQLAlchemyError as err:
-        _LOGGER.error("Couldn't connect using %s DB_URL: %s", db_url, err)
+        _LOGGER.error(
+            "Couldn't connect using %s DB_URL: %s",
+            redact_credentials(db_url),
+            redact_credentials(str(err)),
+        )
         return
     finally:
-        sess.close()
+        if sess:
+            sess.close()
 
     queries = []
 
@@ -77,6 +90,14 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         if value_template is not None:
             value_template.hass = hass
 
+        # MSSQL uses TOP and not LIMIT
+        if not ("LIMIT" in query_str or "SELECT TOP" in query_str):
+            query_str = (
+                query_str.replace("SELECT", "SELECT TOP 1")
+                if "mssql" in db_url
+                else query_str.replace(";", " LIMIT 1;")
+            )
+
         sensor = SQLSensor(
             name, sessmaker, query_str, column_name, unit, value_template
         )
@@ -85,16 +106,13 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities(queries, True)
 
 
-class SQLSensor(Entity):
+class SQLSensor(SensorEntity):
     """Representation of an SQL sensor."""
 
     def __init__(self, name, sessmaker, query, column, unit, value_template):
         """Initialize the SQL sensor."""
         self._name = name
-        if "LIMIT" in query:
-            self._query = query
-        else:
-            self._query = query.replace(";", " LIMIT 1;")
+        self._query = query
         self._unit_of_measurement = unit
         self._template = value_template
         self._column_name = column
@@ -118,7 +136,7 @@ class SQLSensor(Entity):
         return self._unit_of_measurement
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the state attributes."""
         return self._attributes
 
@@ -136,7 +154,7 @@ class SQLSensor(Entity):
                 self._state = None
                 return
 
-            for res in result:
+            for res in result.mappings():
                 _LOGGER.debug("result = %s", res.items())
                 data = res[self._column_name]
                 for key, value in res.items():
@@ -149,10 +167,14 @@ class SQLSensor(Entity):
                         if isinstance(value_json, dict) or isinstance(value_json, list):
                             value = value_json
                     except ValueError:
-                        pass
+                        pass                        
                     self._attributes[key] = value
         except sqlalchemy.exc.SQLAlchemyError as err:
-            _LOGGER.error("Error executing query %s: %s", self._query, err)
+            _LOGGER.error(
+                "Error executing query %s: %s",
+                self._query,
+                redact_credentials(str(err)),
+            )
             return
         finally:
             sess.close()
