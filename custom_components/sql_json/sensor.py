@@ -1,5 +1,5 @@
 """Sensor from an SQL Query (with JSON to object conversion)."""
-## Based on: core/homeassistant/components/sql/sensor.py @ core-2021.5.0 5/5/2021
+## Based on: core/homeassistant/components/sql/sensor.py @ core-2021.5.1
 
 import datetime
 import decimal
@@ -167,7 +167,7 @@ class SQLSensor(SensorEntity):
                         if isinstance(value_json, dict) or isinstance(value_json, list):
                             value = value_json
                     except ValueError:
-                        pass                        
+                        pass
                     self._attributes[key] = value
         except sqlalchemy.exc.SQLAlchemyError as err:
             _LOGGER.error(
