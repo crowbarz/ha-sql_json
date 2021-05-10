@@ -14,6 +14,7 @@ import voluptuous as vol
 from homeassistant.components.recorder import CONF_DB_URL, DEFAULT_DB_FILE, DEFAULT_URL
 from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
 from homeassistant.const import CONF_NAME, CONF_UNIT_OF_MEASUREMENT, CONF_VALUE_TEMPLATE
+from homeassistant.helpers.template import Template, is_template_string
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,6 +114,10 @@ class SQLSensor(SensorEntity):
         """Initialize the SQL sensor."""
         self._name = name
         self._query = query
+        self._query_template = None
+        if is_template_string(query):
+            _LOGGER.debug("using template: %s", self._query)
+            self._query_template = Template(query)
         self._unit_of_measurement = unit
         self._template = value_template
         self._column_name = column
@@ -146,6 +151,10 @@ class SQLSensor(SensorEntity):
         data = None
         try:
             sess = self.sessionmaker()
+            if self._query_template:
+                self._query_template.hass = self.hass
+                self._query = self._query_template.render()
+                _LOGGER.debug("query = %s", self._query)
             result = sess.execute(self._query)
             self._attributes = {}
 
@@ -166,7 +175,7 @@ class SQLSensor(SensorEntity):
                         value_json = json.loads(value)
                         if isinstance(value_json, dict) or isinstance(value_json, list):
                             value = value_json
-                    except ValueError:
+                    except (ValueError, TypeError):
                         pass
                     self._attributes[key] = value
         except sqlalchemy.exc.SQLAlchemyError as err:
