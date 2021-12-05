@@ -14,6 +14,7 @@ import voluptuous as vol
 from homeassistant.components.recorder import CONF_DB_URL, DEFAULT_DB_FILE, DEFAULT_URL
 from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
 from homeassistant.const import CONF_NAME, CONF_UNIT_OF_MEASUREMENT, CONF_VALUE_TEMPLATE
+from homeassistant.helpers.template import Template, is_template_string
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,8 +55,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the SQL sensor platform."""
-    db_url = config.get(CONF_DB_URL)
-    if not db_url:
+    if not (db_url := config.get(CONF_DB_URL)):
         db_url = DEFAULT_URL.format(hass_config_path=hass.config.path(DEFAULT_DB_FILE))
 
     sess = None
@@ -113,6 +113,10 @@ class SQLSensor(SensorEntity):
         """Initialize the SQL sensor."""
         self._name = name
         self._query = query
+        self._query_template = None
+        if is_template_string(query):
+            _LOGGER.debug("using template: %s", self._query)
+            self._query_template = Template(query)
         self._unit_of_measurement = unit
         self._template = value_template
         self._column_name = column
@@ -126,12 +130,12 @@ class SQLSensor(SensorEntity):
         return self._name
 
     @property
-    def state(self):
+    def native_value(self):
         """Return the query's current state."""
         return self._state
 
     @property
-    def unit_of_measurement(self):
+    def native_unit_of_measurement(self):
         """Return the unit of measurement."""
         return self._unit_of_measurement
 
@@ -146,6 +150,10 @@ class SQLSensor(SensorEntity):
         data = None
         try:
             sess = self.sessionmaker()
+            if self._query_template:
+                self._query_template.hass = self.hass
+                self._query = self._query_template.render()
+                _LOGGER.debug("query = %s", self._query)
             result = sess.execute(self._query)
             self._attributes = {}
 
@@ -166,7 +174,7 @@ class SQLSensor(SensorEntity):
                         value_json = json.loads(value)
                         if isinstance(value_json, dict) or isinstance(value_json, list):
                             value = value_json
-                    except ValueError:
+                    except (ValueError, TypeError):
                         pass
                     self._attributes[key] = value
         except sqlalchemy.exc.SQLAlchemyError as err:
