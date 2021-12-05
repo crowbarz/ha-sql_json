@@ -14,11 +14,13 @@ This quick mod of the [core SQL integration](https://www.home-assistant.io/integ
 
 This integration is configured identically to the [core SQL integration](https://www.home-assistant.io/integrations/sql/). Replace the platform with `sql_json` to switch the query to use this integration.
 
+The query may be a Jinja2 template, which will be rendered whenever the query is executed.
+
 Note that there is a hard limit of [255 characters](https://github.com/home-assistant/core/blob/9ee97cb213d659aa9b6149484c0a42522decba78/homeassistant/core.py#L136) for states in Home Assistant, although attributes may contain [any amount of data as long as it is JSON serialisable](https://developers.home-assistant.io/docs/dev_101_states).
 
-## Accessing JSON data
+## Accessing JSON result data
 
-The JSON data can be accessed in Jinja2 templates by retrieving the attribute using `state_attr`. For example:
+JSON result data can be accessed in Jinja2 templates by using `state_attr`. For example:
 
 ```jinja
 Entity with most events (last 24 hours): {{ state_attr(state_attr('sensor.recorder_top_events', 'json')[0].entity_id, 'friendly_name') }}
