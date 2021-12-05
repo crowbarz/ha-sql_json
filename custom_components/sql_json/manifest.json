@@ -1,10 +1,10 @@
 {
   "domain": "sql_json",
   "name": "SQL (with JSON detection)",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "documentation": "https://github.com/crowbarz/ha-sql_json",
   "issue_tracker": "https://github.com/crowbarz/ha-sql_json/issues",
-  "requirements": ["sqlalchemy==1.4.13"],
+  "requirements": ["sqlalchemy==1.4.23"],
   "dependencies": [],
   "after_dependencies": ["recorder"],
   "codeowners": ["@dgomes", "@crowbarz"],
