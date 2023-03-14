@@ -30,43 +30,49 @@ It is already possible to access data elements within a JSON result with the cor
 
 ## Configuration example
 
-The following configuration snippet queries the recorder database for the top 10 entities with the most events in the previous 24 hours. It will run every 24 hours, and can also be triggered by an automation to run at a specific time using the service `homeassistant.update_entity`. Replace `!secret db_url` with the database URL used for your recorder instance.
+The following configuration snippet defines a sensor that the recorder database for the top 10 entities with the most events during the 24 hours prior to the time that the sensor is updated. The automation updates the sensor at 01:30 daily. Set `db_url` to the database URL used for your recorder instance in `secrets.yaml`.
+
+This configuration has been tested on HA 2023.3.
 
 ```yaml
 # Example configuration.yaml
 sensor:
   - platform: sql_json
-    scan_interval: 86400
+    scan_interval: 2592000  ## 30 days
     db_url: !secret db_url
     queries:
       - name: "Recorder Top Events"
-        query: >-
-          SELECT CONCAT('[', GROUP_CONCAT(event_json), ']') AS json
+        query: |
+          SELECT CONCAT('[', GROUP_CONCAT(event_json), ']') as json
           FROM (
-            WITH events AS (
+            SELECT JSON_OBJECT('entity_id', entity_id, 'count', event_count) AS event_json
+            FROM (
               SELECT entity_id, COUNT(*) AS event_count
-              FROM (
-                SELECT entity_id FROM events
-                  LEFT JOIN states AS new_states ON events.event_id = new_states.event_id
-                WHERE event_type = 'state_changed'
-                AND time_fired BETWEEN DATE_ADD(CURDATE(), INTERVAL -1 DAY) AND CURDATE()
-              ) AS entity_ids
+              FROM states
+              WHERE last_updated_ts BETWEEN UNIX_TIMESTAMP()-86400 AND UNIX_TIMESTAMP()
               GROUP BY entity_id
               ORDER BY event_count DESC
-            )
-            SELECT JSON_OBJECT(
-                'entity_id', entity_id,
-                'count', event_count
-            ) AS event_json
-            FROM events
-            LIMIT 10
-          ) AS json_output
+              LIMIT 10
+            ) AS json_output
+          ) AS json_list;
         value_template: '{{ value_json[0].count }}'
         unit_of_measurement: events
         column: json
+
+automation:
+  - id: update_recorder_top_events_daily
+    alias: Update Recorder Top Events daily
+    mode: single
+    trigger:
+      platform: time
+      at: 01:30:00
+    action:
+      - service: homeassistant.update_entity
+        entity_id: sensor.recorder_top_events
+
 ```
 
-The entities can then be displayed in a Lovelace card:
+The entities returned by the SQL query can then be displayed in a Lovelace card:
 
 **NOTE**: requires the [`flex-table-card`](https://github.com/custom-cards/flex-table-card) Lovelace card to be installed.
 
