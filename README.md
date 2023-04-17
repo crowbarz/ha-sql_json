@@ -32,7 +32,7 @@ It is already possible to access data elements within a JSON result with the cor
 
 The following configuration snippet defines a sensor that the recorder database for the top 10 entities with the most events during the 24 hours prior to the time that the sensor is updated. The automation updates the sensor at 01:30 daily. Set `db_url` to the database URL used for your recorder instance in `secrets.yaml`.
 
-This configuration has been tested on HA 2023.3.
+This configuration has been tested on HA 2023.4.
 
 ```yaml
 # Example configuration.yaml
@@ -41,20 +41,21 @@ sensor:
     scan_interval: 2592000  ## 30 days
     db_url: !secret db_url
     queries:
-      - name: "Recorder Top Events"
-        query: |
-          SELECT CONCAT('[', GROUP_CONCAT(event_json), ']') as json
-          FROM (
-            SELECT JSON_OBJECT('entity_id', entity_id, 'count', event_count) AS event_json
+        - name: Recorder Top Events
+          query: |
+            SELECT CONCAT('[', GROUP_CONCAT(event_json), ']') as json
             FROM (
-              SELECT entity_id, COUNT(*) AS event_count
-              FROM states
-              WHERE last_updated_ts BETWEEN UNIX_TIMESTAMP()-86400 AND UNIX_TIMESTAMP()
-              GROUP BY entity_id
-              ORDER BY event_count DESC
-              LIMIT 10
-            ) AS json_output
-          ) AS json_list;
+              SELECT JSON_OBJECT('entity_id', entity_id, 'count', event_count) AS event_json
+              FROM (
+                SELECT states_meta.entity_id, COUNT(*) AS event_count
+                FROM states
+                LEFT JOIN states_meta ON states.metadata_id = states_meta.metadata_id
+                WHERE last_updated_ts BETWEEN UNIX_TIMESTAMP()-86400 AND UNIX_TIMESTAMP()
+                GROUP BY states.metadata_id
+                ORDER BY event_count DESC
+                LIMIT 10
+              ) AS json_output
+            ) AS json_list;
         value_template: '{{ value_json[0].count }}'
         unit_of_measurement: events
         column: json
