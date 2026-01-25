@@ -1,5 +1,10 @@
 # sql_json
 
+> [!WARNING]
+> The [core SQL integration](https://www.home-assistant.io/integrations/sql/) was updated in HA release 2025.12 to support template queries, so this custom integration is no longer required.
+>
+> Queries can be migrated directly to the core SQL integration. See below for migration notes.
+
 Updated SQL integration for Home Assistant that supports JSON attributes.
 
 This quick mod of the [core SQL integration](https://www.home-assistant.io/integrations/sql/) converts an SQL query result that parse as JSON to an object, allowing the result dataset to be accessed by templates and other integrations, as well as displayed in Lovelace cards.
@@ -99,4 +104,40 @@ cards:
         name: events/h
     entities:
       include: sensor.recorder_top_events
+```
+
+### Migration to core SQL integration
+
+Unlike this integration, the core SQL integration does not automatically convert JSON data to objects. A script can be used to perform this conversion:
+
+```yaml
+# script
+
+parse_ha_database_top_events:
+  variables:
+    top_events:
+      top_events: "{{ state_attr('sensor.ha_database_top_events', 'json')|from_json }}"
+  sequence:
+    - stop: Top Events
+      response_variable: top_events
+```
+
+flex-table-card can then render the returned data from the script as previously:
+
+```yaml
+type: custom:flex-table-card
+columns:
+  - data: top_events.entity_id
+    clickable: true
+    name: Entity ID
+    tap_action:
+      action: more-info
+      entity: cell[0]
+  - data: top_events.count
+    name: events/day
+  - data: top_events.count
+    modify: (x/24).toFixed(2)
+    name: events/h
+entities: []
+action: script.parse_ha_database_top_events
 ```
